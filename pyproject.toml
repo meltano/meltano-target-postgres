@@ -22,9 +22,29 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=9",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.21",
     "testcontainers[postgres]>=4.15.0rc4",
     "types-jsonschema>=4.26.0.20260518",
 ]
 
 [tool.pytest]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["target_postgres"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "TID"]
+ignore = [
+    "E722",   # bare-except
+]

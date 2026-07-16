@@ -90,6 +90,41 @@ class TestBasicArrowLoad:
         names = {row[name_idx] for row in rows}
         assert names == {"Ada", "Grace"}
 
+    def test_number_column_arrow_sourced_as_string_is_cast_to_target_type(self, db_config, pg_connect, tmp_path):
+        # Mirrors tap-postgres's own Arrow BATCH encoding: a NUMERIC source column is
+        # serialized as an Arrow string (utf8) to avoid float64 precision loss, even
+        # though its SCHEMA message declares JSON Schema type "number" -- which this
+        # target maps to a "double precision" column (schema.py's column_type). The
+        # staging table adbc_ingest creates from the Arrow file is typed by Arrow's own
+        # utf8 column, not the target's declared double precision, so the INSERT ...
+        # SELECT from staging into the real table needs an explicit cast or Postgres
+        # rejects it outright (text is not implicitly assignable to double precision).
+        arrow_path = write_arrow_file(
+            tmp_path,
+            "batch1.arrow",
+            {
+                "id": pa.array([1, 2], type=pa.int64()),
+                "balance": pa.array(["9.50", "3.25"], type=pa.string()),
+            },
+        )
+        lines = [
+            schema_msg(
+                "public-accounts",
+                {
+                    "id": {"type": ["integer"]},
+                    "balance": {"type": ["number"]},
+                },
+            ),
+            batch_msg("public-accounts", [arrow_path]),
+        ]
+
+        persist_lines(db_config, lines)
+
+        columns, rows = fetch_rows(pg_connect, "public", "accounts")
+        balance_idx = columns.index("balance")
+        balances = {float(row[balance_idx]) for row in rows}
+        assert balances == {9.5, 3.25}
+
     def test_manifest_files_are_deleted_after_processing(self, db_config, tmp_path):
         arrow_path = write_arrow_file(tmp_path, "batch1.arrow", {"id": pa.array([1], type=pa.int64())})
         lines = [

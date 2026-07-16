@@ -316,6 +316,14 @@ class DbSync:
         caller fill in a column that's absent from `tmp_table` with a computed value
         instead of omitting it entirely -- e.g. `_sdc_batched_at` for BATCH-sourced rows,
         which has no per-row source data but is still a meaningful wall-clock constant.
+
+        Source-sourced columns are cast to their target `column_types` entry in the
+        SELECT list. A no-op for flush()'s CSV/COPY temp table, which is already created
+        with those exact types (`_create_temp_table`) -- but load_rows_from_arrow_files's
+        staging table is typed by `adbc_ingest`'s own inference over the Arrow file
+        (e.g. a tap-postgres NUMERIC column round-trips through Arrow as a string, to
+        avoid float precision loss), which can disagree with the SCHEMA-derived target
+        type Postgres won't implicitly cast across (e.g. text -> double precision).
         """
         if source_columns is None:
             source_columns = columns
@@ -323,7 +331,12 @@ class DbSync:
         source_set = set(source_columns)
         cols = [c for c in columns if c in source_set or c in computed_columns]
         col_idents = [sql.Identifier(c) for c in cols]
-        select_exprs = [sql.Identifier(c) if c in source_set else computed_columns[c] for c in cols]
+        select_exprs = [
+            sql.SQL("{}::{}").format(sql.Identifier(c), sql.SQL(self.column_types[c]))  # ty:ignore[invalid-argument-type]
+            if c in source_set
+            else computed_columns[c]
+            for c in cols
+        ]
 
         if not self.pk_columns:
             cur.execute(

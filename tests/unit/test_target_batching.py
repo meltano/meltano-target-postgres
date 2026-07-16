@@ -15,10 +15,9 @@ class FakeDbSync:
         self.config = config
         self.stream = stream_schema_message["stream"]
         self.key_properties = stream_schema_message.get("key_properties") or []
-        self.columns = flatten_schema(
-            stream_schema_message["schema"].get("properties", {}), config
-        )
+        self.columns = flatten_schema(stream_schema_message["schema"].get("properties", {}), config)
         self.flush_calls = []
+        self.batch_calls = []
         FakeDbSync.instances.append(self)
 
     def create_schema_if_not_exists(self):
@@ -35,6 +34,10 @@ class FakeDbSync:
     def flush(self, records):
         self.flush_calls.append(dict(records))
         return {"inserts": len(records), "updates": 0, "size_bytes": 0}
+
+    def load_rows_from_arrow_files(self, file_paths):
+        self.batch_calls.append(list(file_paths))
+        return {"inserts": len(file_paths), "updates": 0, "size_bytes": 0}
 
 
 @pytest.fixture(autouse=True)
@@ -74,6 +77,17 @@ def _state_line(value):
     return json.dumps({"type": "STATE", "value": value})
 
 
+def _batch_line(stream, manifest, encoding_format="arrow"):
+    return json.dumps(
+        {
+            "type": "BATCH",
+            "stream": stream,
+            "encoding": {"format": encoding_format},
+            "manifest": manifest,
+        }
+    )
+
+
 class TestBatching:
     def test_40_records_batch_size_20_flushes_twice(self):
         lines = [_schema_line("users")]
@@ -99,9 +113,7 @@ class TestBatching:
     def test_duplicate_pk_collapses_within_batch(self):
         lines = [_schema_line("users")]
         lines.append(_record_line("users", 1))
-        lines.append(
-            _record_line("users", 1)
-        )  # same PK, should collapse (last write wins)
+        lines.append(_record_line("users", 1))  # same PK, should collapse (last write wins)
         lines.append(_record_line("users", 2))
 
         target_module.persist_lines({"batch_size_rows": 20}, lines)
@@ -141,9 +153,7 @@ class TestStateEmission:
         lines.append(_state_line({"bookmarks": {"a": {"pos": 2}, "b": {"pos": 7}}}))
         lines.append(_record_line("b", 1))
 
-        final_state = target_module.persist_lines(
-            {"batch_size_rows": 2, "flush_all_streams": True}, lines
-        )
+        final_state = target_module.persist_lines({"batch_size_rows": 2, "flush_all_streams": True}, lines)
 
         assert final_state is not None
         assert final_state["bookmarks"]["a"]["pos"] == 2
@@ -166,3 +176,48 @@ class TestPrimaryKeyRequired:
 
         db_sync = FakeDbSync.instances[0]
         assert list(db_sync.flush_calls[0].keys()) == ["RID-0"]
+
+
+class TestBatchMessages:
+    def test_batch_before_schema_raises(self):
+        lines = [_batch_line("users", ["file:///tmp/a.arrow"])]
+        with pytest.raises(Exception, match="before its SCHEMA"):
+            target_module.persist_lines({}, lines)
+
+    def test_unsupported_encoding_format_raises(self):
+        from target_postgres.exceptions import UnsupportedBatchEncodingException
+
+        lines = [_schema_line("users"), _batch_line("users", ["file:///tmp/a.jsonl"], encoding_format="jsonl")]
+        with pytest.raises(UnsupportedBatchEncodingException):
+            target_module.persist_lines({}, lines)
+
+    def test_file_uri_stripped_before_dispatch(self):
+        lines = [_schema_line("users"), _batch_line("users", ["file:///tmp/a.arrow", "/tmp/b.arrow"])]
+
+        target_module.persist_lines({}, lines)
+
+        db_sync = FakeDbSync.instances[0]
+        assert db_sync.batch_calls == [["/tmp/a.arrow", "/tmp/b.arrow"]]
+
+    def test_pending_record_buffer_flushed_before_batch(self):
+        lines = [
+            _schema_line("users"),
+            _record_line("users", 1),
+            _batch_line("users", ["file:///tmp/a.arrow"]),
+        ]
+
+        target_module.persist_lines({"batch_size_rows": 100}, lines)
+
+        db_sync = FakeDbSync.instances[0]
+        assert len(db_sync.flush_calls) == 1
+        assert len(db_sync.flush_calls[0]) == 1
+        assert db_sync.batch_calls == [["/tmp/a.arrow"]]
+
+    def test_no_pending_buffer_skips_flush(self):
+        lines = [_schema_line("users"), _batch_line("users", ["file:///tmp/a.arrow"])]
+
+        target_module.persist_lines({}, lines)
+
+        db_sync = FakeDbSync.instances[0]
+        assert db_sync.flush_calls == []
+        assert db_sync.batch_calls == [["/tmp/a.arrow"]]

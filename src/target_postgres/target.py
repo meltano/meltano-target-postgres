@@ -10,14 +10,18 @@ from decimal import Decimal, InvalidOperation
 from jsonschema import Draft7Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
+from target_postgres.arrow_batch import strip_file_uri
 from target_postgres.db_sync import DbSync
 from target_postgres.exceptions import (
     InvalidValidationOperationException,
     PrimaryKeyNotFoundException,
     RecordValidationException,
+    UnsupportedBatchEncodingException,
 )
 from target_postgres.logger import Counter
 from target_postgres.schema import add_metadata_values_to_record, flatten_record
+
+SUPPORTED_BATCH_ENCODING_FORMAT = "arrow"
 
 
 class _StreamState:
@@ -63,6 +67,12 @@ def _flush_one(stream_state: _StreamState):
     stream_state.buffer = {}
 
 
+def _load_batch(stream_state: _StreamState, file_paths: list):
+    with Counter("record_count", {"stream": stream_state.db_sync.stream}) as counter:
+        result = stream_state.db_sync.load_rows_from_arrow_files(file_paths)
+        counter.increment(result["inserts"] + result["updates"])
+
+
 def _merge_flushed_state(flushed_state, current_state, flushed_stream_names: list):
     """Advance only the flushed streams' bookmarks, holding others back (SPEC.md §9)."""
     if current_state is None:
@@ -80,18 +90,13 @@ def _merge_flushed_state(flushed_state, current_state, flushed_stream_names: lis
     return merged
 
 
-def _flush_streams(
-    target_streams: dict, state, flushed_state, config: dict, flush_all: bool = False
-):
+def _flush_streams(target_streams: dict, state, flushed_state, config: dict, flush_all: bool = False):
     if not target_streams:
         return flushed_state
 
     workers = _parallelism(config, len(target_streams))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [
-            executor.submit(_flush_one, stream_state)
-            for stream_state in target_streams.values()
-        ]
+        futures = [executor.submit(_flush_one, stream_state) for stream_state in target_streams.values()]
         for future in futures:
             future.result()
 
@@ -135,9 +140,7 @@ def persist_lines(config: dict, lines) -> dict | None:
                 )
 
             if stream in streams and streams[stream].buffer:
-                flushed_state = _flush_streams(
-                    {stream: streams[stream]}, state, flushed_state, config
-                )
+                flushed_state = _flush_streams({stream: streams[stream]}, state, flushed_state, config)
 
             db_sync = DbSync(
                 config,
@@ -152,18 +155,14 @@ def persist_lines(config: dict, lines) -> dict | None:
 
             validator = None
             if validate_records:
-                validator = Draft7Validator(
-                    message["schema"], format_checker=FormatChecker()
-                )
+                validator = Draft7Validator(message["schema"], format_checker=FormatChecker())
 
             streams[stream] = _StreamState(db_sync, validator)
 
         elif msg_type == "RECORD":
             stream = message["stream"]
             if stream not in streams:
-                raise Exception(
-                    f"RECORD message for stream {stream!r} received before its SCHEMA"
-                )
+                raise Exception(f"RECORD message for stream {stream!r} received before its SCHEMA")
 
             stream_state = streams[stream]
             record = message["record"]
@@ -172,28 +171,37 @@ def persist_lines(config: dict, lines) -> dict | None:
                 _validate_record(stream_state.validator, record)
 
             if add_metadata_columns or hard_delete:
-                record = add_metadata_values_to_record(
-                    record, message.get("time_extracted")
-                )
+                record = add_metadata_values_to_record(record, message.get("time_extracted"))
 
-            pk_string = stream_state.db_sync.primary_key_string(
-                record, stream_state.row_count
-            )
-            stream_state.buffer[pk_string] = flatten_record(
-                record, stream_state.db_sync.columns
-            )
+            pk_string = stream_state.db_sync.primary_key_string(record, stream_state.row_count)
+            stream_state.buffer[pk_string] = flatten_record(record, stream_state.db_sync.columns)
             stream_state.row_count += 1
 
             if len(stream_state.buffer) >= batch_size_rows:
                 if flush_all_streams:
-                    flushed_state = _flush_streams(
-                        streams, state, flushed_state, config, flush_all=True
-                    )
+                    flushed_state = _flush_streams(streams, state, flushed_state, config, flush_all=True)
                 else:
-                    flushed_state = _flush_streams(
-                        {stream: stream_state}, state, flushed_state, config
-                    )
+                    flushed_state = _flush_streams({stream: stream_state}, state, flushed_state, config)
                 _emit_state(flushed_state)
+
+        elif msg_type == "BATCH":
+            stream = message["stream"]
+            if stream not in streams:
+                raise Exception(f"BATCH message for stream {stream!r} received before its SCHEMA")
+
+            encoding = message.get("encoding", {})
+            if encoding.get("format") != SUPPORTED_BATCH_ENCODING_FORMAT:
+                raise UnsupportedBatchEncodingException(
+                    f"Unsupported BATCH encoding format {encoding.get('format')!r} for "
+                    f"stream {stream!r} (only {SUPPORTED_BATCH_ENCODING_FORMAT!r} is supported)"
+                )
+
+            stream_state = streams[stream]
+            if stream_state.buffer:
+                flushed_state = _flush_streams({stream: stream_state}, state, flushed_state, config)
+
+            file_paths = strip_file_uri(message.get("manifest", []))
+            _load_batch(stream_state, file_paths)
 
         elif msg_type == "STATE":
             state = message["value"]
@@ -207,15 +215,9 @@ def persist_lines(config: dict, lines) -> dict | None:
         else:
             raise Exception(f"Unknown Singer message type: {msg_type!r}")
 
-    pending = {
-        name: stream_state
-        for name, stream_state in streams.items()
-        if stream_state.buffer
-    }
+    pending = {name: stream_state for name, stream_state in streams.items() if stream_state.buffer}
     if pending:
-        flushed_state = _flush_streams(
-            pending, state, flushed_state, config, flush_all=True
-        )
+        flushed_state = _flush_streams(pending, state, flushed_state, config, flush_all=True)
 
     _emit_state(flushed_state)
     return flushed_state

@@ -9,16 +9,10 @@ class TestColumnType:
         assert column_type({"type": ["array"]}) == "jsonb"
 
     def test_date_time_format(self):
-        assert (
-            column_type({"type": ["string"], "format": "date-time"})
-            == "timestamp without time zone"
-        )
+        assert column_type({"type": ["string"], "format": "date-time"}) == "timestamp without time zone"
 
     def test_time_format(self):
-        assert (
-            column_type({"type": ["string"], "format": "time"})
-            == "time without time zone"
-        )
+        assert column_type({"type": ["string"], "format": "time"}) == "time without time zone"
 
     def test_number(self):
         assert column_type({"type": ["number", "null"]}) == "double precision"
@@ -33,10 +27,7 @@ class TestColumnType:
         assert column_type({"type": ["integer"], "maximum": 2147483647}) == "integer"
 
     def test_integer_large_max(self):
-        assert (
-            column_type({"type": ["integer"], "maximum": 9223372036854775807})
-            == "bigint"
-        )
+        assert column_type({"type": ["integer"], "maximum": 9223372036854775807}) == "bigint"
 
     def test_integer_no_max_is_unbounded_numeric(self):
         assert column_type({"type": ["integer"]}) == "numeric"

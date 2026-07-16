@@ -80,11 +80,7 @@ class TestTargetSchemaResolution:
         assert resolve_grantees(None, config) == "role_b"
 
     def test_indices_from_schema_mapping(self):
-        config = {
-            "schema_mapping": {
-                "public": {"target_schema": "s", "indices": {"orders": ["customer_id"]}}
-            }
-        }
+        config = {"schema_mapping": {"public": {"target_schema": "s", "indices": {"orders": ["customer_id"]}}}}
         assert resolve_indices("public", "orders", config) == ["customer_id"]
         assert resolve_indices("public", "other_table", config) == []
         assert resolve_indices(None, "orders", config) == []

@@ -39,9 +39,7 @@ def abbreviate(segment: str) -> str:
 
     Falls back to the first 3 characters if that yields <=1 char.
     """
-    camelized = "".join(
-        word[:1].upper() + word[1:] for word in re.split(r"[_\-\s]+", segment) if word
-    )
+    camelized = "".join(word[:1].upper() + word[1:] for word in re.split(r"[_\-\s]+", segment) if word)
     initials = "".join(c for c in camelized if c.isupper())
     if len(initials) <= 1:
         return segment[:3]
@@ -131,18 +129,14 @@ def resolve_grantees(stream_schema_name: str | None, config: dict):
     """Resolve select-permission grantees for a stream (SPEC.md §6)."""
     schema_mapping = config.get("schema_mapping") or {}
     if stream_schema_name and stream_schema_name in schema_mapping:
-        grantees = schema_mapping[stream_schema_name].get(
-            "target_schema_select_permissions"
-        )
+        grantees = schema_mapping[stream_schema_name].get("target_schema_select_permissions")
         if grantees:
             return grantees
 
     return config.get("default_target_schema_select_permissions")
 
 
-def resolve_indices(
-    stream_schema_name: str | None, table: str, config: dict
-) -> list[str]:
+def resolve_indices(stream_schema_name: str | None, table: str, config: dict) -> list[str]:
     """Resolve configured index columns for a stream's table (SPEC.md §11)."""
     schema_mapping = config.get("schema_mapping") or {}
     if stream_schema_name and stream_schema_name in schema_mapping:

@@ -84,17 +84,11 @@ def _collect_leaves(
         new_orig = orig_parts + [name]
         new_key = key_parts + [name_for_column]
 
-        nested_properties = (
-            prop_schema.get("properties") if isinstance(prop_schema, dict) else None
-        )
+        nested_properties = prop_schema.get("properties") if isinstance(prop_schema, dict) else None
         types = _types_of(prop_schema)
 
         if level < max_level and "object" in types and nested_properties:
-            leaves.extend(
-                _collect_leaves(
-                    nested_properties, max_level, inflect, new_orig, new_key, level + 1
-                )
-            )
+            leaves.extend(_collect_leaves(nested_properties, max_level, inflect, new_orig, new_key, level + 1))
         else:
             leaves.append((new_orig, new_key, prop_schema))
 

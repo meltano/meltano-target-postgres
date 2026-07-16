@@ -19,3 +19,13 @@ class RecordValidationException(TargetPostgresException):
 
 class InvalidValidationOperationException(TargetPostgresException):
     """Raised when record validation itself fails with a decimal.InvalidOperation."""
+
+
+class UnsupportedBatchEncodingException(TargetPostgresException):
+    """Raised when a BATCH message's encoding.format is anything other than 'arrow'."""
+
+
+class BatchFlatteningUnsupportedException(TargetPostgresException):
+    """Raised when a stream's flattening/inflection config would rename columns away from
+    the raw schema property names that a BATCH-sourced Arrow file uses (SPEC.md-style
+    by-name column matching can't bridge that gap)."""

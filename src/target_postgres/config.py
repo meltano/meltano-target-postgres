@@ -18,8 +18,6 @@ def validate_config(config: dict) -> list[str]:
             errors.append(f"Missing required config key: {key!r}")
 
     if not config.get("default_target_schema") and not config.get("schema_mapping"):
-        errors.append(
-            "Config must set either 'default_target_schema' or 'schema_mapping'"
-        )
+        errors.append("Config must set either 'default_target_schema' or 'schema_mapping'")
 
     return errors

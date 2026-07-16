@@ -113,9 +113,7 @@ class TestBasicLoad:
 
     def test_no_key_properties_is_append_only(self, db_config, pg_connect):
         lines = [
-            schema_msg(
-                "public-events", {"id": {"type": ["integer"]}}, key_properties=()
-            ),
+            schema_msg("public-events", {"id": {"type": ["integer"]}}, key_properties=()),
             record_msg("public-events", {"id": 1}),
             record_msg("public-events", {"id": 1}),
         ]
@@ -129,9 +127,7 @@ class TestMetadataColumns:
     def test_metadata_columns_populated_when_enabled(self, db_config, pg_connect):
         lines = [
             schema_msg("public-widgets", {"id": {"type": ["integer"]}}),
-            record_msg(
-                "public-widgets", {"id": 1}, time_extracted="2024-01-01T00:00:00Z"
-            ),
+            record_msg("public-widgets", {"id": 1}, time_extracted="2024-01-01T00:00:00Z"),
         ]
         persist_lines({**db_config, "add_metadata_columns": True}, lines)
 
@@ -162,9 +158,7 @@ class TestHardDelete:
 
         lines2 = [
             schema_msg("public-widgets", {"id": {"type": ["integer"]}}),
-            record_msg(
-                "public-widgets", {"id": 1, "_sdc_deleted_at": "2024-01-01T00:00:00"}
-            ),
+            record_msg("public-widgets", {"id": 1, "_sdc_deleted_at": "2024-01-01T00:00:00"}),
         ]
         persist_lines({**db_config, "hard_delete": True}, lines2)
 

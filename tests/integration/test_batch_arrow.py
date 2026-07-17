@@ -1,5 +1,6 @@
 import json
 import os
+from decimal import Decimal
 
 import pyarrow as pa
 import pyarrow.ipc as ipc
@@ -121,6 +122,39 @@ class TestBasicArrowLoad:
         persist_lines(db_config, lines)
 
         columns, rows = fetch_rows(pg_connect, "public", "accounts")
+        balance_idx = columns.index("balance")
+        balances = {float(row[balance_idx]) for row in rows}
+        assert balances == {9.5, 3.25}
+
+    def test_arrow_decimal_column_is_ingestible(self, db_config, pg_connect, tmp_path):
+        # Unlike tap-postgres (which serializes NUMERIC as an Arrow string, see the test
+        # above), some taps encode a decimal source column as a native Arrow decimal type
+        # (e.g. pipelinewise-tap-mysql for a MySQL DECIMAL column). adbc-driver-postgresql
+        # can fail to even create the staging table for some decimal bit-widths
+        # ("Can't map Arrow type 'decimal64' to Postgres type") before _upsert's cast ever
+        # gets a chance to run -- _stringify_decimal_columns needs to convert it first.
+        arrow_path = write_arrow_file(
+            tmp_path,
+            "batch1.arrow",
+            {
+                "id": pa.array([1, 2], type=pa.int64()),
+                "balance": pa.array([Decimal("9.50"), Decimal("3.25")], type=pa.decimal64(12, 2)),
+            },
+        )
+        lines = [
+            schema_msg(
+                "public-decimal_accounts",
+                {
+                    "id": {"type": ["integer"]},
+                    "balance": {"type": ["number"]},
+                },
+            ),
+            batch_msg("public-decimal_accounts", [arrow_path]),
+        ]
+
+        persist_lines(db_config, lines)
+
+        columns, rows = fetch_rows(pg_connect, "public", "decimal_accounts")
         balance_idx = columns.index("balance")
         balances = {float(row[balance_idx]) for row in rows}
         assert balances == {9.5, 3.25}

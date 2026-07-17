@@ -20,6 +20,27 @@ def strip_file_uri(manifest: list) -> list:
     return [path[len("file://") :] if path.startswith("file://") else path for path in manifest]
 
 
+def _stringify_decimal_columns(table):
+    """Cast any Arrow decimal-typed column to string.
+
+    adbc-driver-postgresql's `adbc_ingest(mode="create")` can raise (e.g. "Can't map
+    Arrow type 'decimal64' to Postgres type") on some Arrow decimal widths -- not every
+    decimal bit-width Arrow supports has a corresponding staging-table type it knows how
+    to create. Casting to string sidesteps that entirely (and, unlike a float64 cast,
+    loses no precision); DbSync._upsert already casts every staging-sourced column to
+    its real target type (from the SCHEMA message) on the INSERT ... SELECT that follows,
+    so a string-typed staging column is no different from any other Arrow-native type
+    mismatch it already handles.
+    """
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    for i, field in enumerate(table.schema):
+        if pa.types.is_decimal(field.type):
+            table = table.set_column(i, field.name, pc.cast(table.column(i), pa.string()))
+    return table
+
+
 def read_manifest_tables(file_paths: list):
     """Read one or more Arrow IPC file-format files into a single combined pyarrow.Table.
 
@@ -35,7 +56,7 @@ def read_manifest_tables(file_paths: list):
         with ipc.open_file(file_path) as reader:
             tables.append(reader.read_all())
 
-    return pa.concat_tables(tables, promote_options="default")
+    return _stringify_decimal_columns(pa.concat_tables(tables, promote_options="default"))
 
 
 def build_adbc_uri(config: dict) -> str:

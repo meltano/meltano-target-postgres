@@ -30,6 +30,8 @@ def column_type(prop_schema: dict) -> str:
         return "timestamp without time zone"
     if prop_format == "time":
         return "time without time zone"
+    if prop_format == "date":
+        return "date"
     if "number" in types:
         return "double precision"
     if "integer" in types and "string" in types:

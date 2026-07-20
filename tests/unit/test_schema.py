@@ -14,6 +14,9 @@ class TestColumnType:
     def test_time_format(self):
         assert column_type({"type": ["string"], "format": "time"}) == "time without time zone"
 
+    def test_date_format(self):
+        assert column_type({"type": ["string"], "format": "date"}) == "date"
+
     def test_number(self):
         assert column_type({"type": ["number", "null"]}) == "double precision"
 

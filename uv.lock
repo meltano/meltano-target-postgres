@@ -897,7 +897,6 @@ wheels = [
 
 [[package]]
 name = "target-postgres"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "adbc-driver-postgresql" },

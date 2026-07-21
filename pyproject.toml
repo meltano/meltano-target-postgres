@@ -1,6 +1,6 @@
 [project]
 name = "target-postgres"
-version = "0.1.0"
+dynamic = [ "version" ]
 description = "Singer target for loading data into PostgreSQL"
 readme = "README.md"
 authors = [
@@ -29,6 +29,10 @@ dev = [
     "testcontainers[postgres]>=4.15.0rc4",
     "types-jsonschema>=4.26.0.20260518",
 ]
+
+[tool.hatch.version]
+fallback-version = "0.0.0dev0"
+source = "vcs"
 
 [tool.pytest]
 testpaths = ["tests"]

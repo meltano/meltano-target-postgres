@@ -26,7 +26,7 @@ dev = [
     "pytest>=9",
     "pytest-cov>=7.1.0",
     "ruff>=0.15.21",
-    "testcontainers[postgres]>=4.15.0rc4",
+    "testcontainers[postgres]>=4.15",
     "types-jsonschema>=4.26.0.20260518",
 ]
 

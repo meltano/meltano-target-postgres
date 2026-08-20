@@ -19,7 +19,7 @@ dependencies = [
     "psycopg[binary]~=3.3",
     "jsonschema~=4.26",
     "pyarrow~=25.0",
-    "adbc-driver-postgresql~=1.11",
+    "adbc-driver-postgresql~=1.12",
 ]
 
 [project.scripts]

@@ -421,10 +421,12 @@ Replace the "external Postgres + env vars" fixture model with
 import pytest
 from testcontainers.postgres import PostgresContainer
 
+
 @pytest.fixture(scope="session")
 def pg_container():
     with PostgresContainer("postgres:16-alpine") as pg:
         yield pg
+
 
 @pytest.fixture
 def db_config(pg_container):

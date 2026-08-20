@@ -6,6 +6,14 @@ readme = "README.md"
 authors = [
     { name = "Edgar Ramírez Mondragón", email = "emondragon@meltano.com" }
 ]
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
 requires-python = ">=3.10"
 dependencies = [
     "psycopg[binary]~=3.3",
@@ -23,10 +31,10 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "pytest>=9",
-    "pytest-cov>=7.1.0",
-    "ruff>=0.16.1",
-    "testcontainers[postgres]>=4.15",
+    "pytest~=9.1",
+    "pytest-cov~=7.1",
+    "ruff~=0.16.2",
+    "testcontainers[postgres]~=4.15",
     "types-jsonschema>=4.26.0.20260518",
 ]
 
@@ -54,3 +62,28 @@ select = ["E", "F", "W", "I", "TID"]
 ignore = [
     "E722",   # bare-except
 ]
+
+[tool.tox]
+requires = [
+  "tox>=4.55",
+  "tox-uv>=1.35",
+]
+env_list = [
+  "lint",
+  "test"
+]
+
+[tool.tox.env.lint]
+description = "lint source"
+dependency_groups = [ "dev" ]
+commands = [
+  [ "ruff", "check" ],
+  [ "ruff", "format", "--check" ],
+]
+
+[tool.tox.env.test]
+description = "run tests on Python {py_dot_ver}"
+
+[tool.tox.env_run_base]
+dependency_groups = [ "dev" ]
+commands = [ [ "pytest", { replace = "posargs", default = [ "tests" ], extend = true } ] ]

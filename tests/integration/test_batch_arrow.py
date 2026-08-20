@@ -243,9 +243,7 @@ class TestArrowMergeUpsert:
         assert after[1][1] == before[1]
 
     def test_sdc_batched_at_is_populated_for_batch_rows(self, db_config, pg_connect, tmp_path):
-        arrow_path = write_arrow_file(
-            tmp_path, "batch1.arrow", {"id": pa.array([1, 2], type=pa.int64())}
-        )
+        arrow_path = write_arrow_file(tmp_path, "batch1.arrow", {"id": pa.array([1, 2], type=pa.int64())})
         lines = [
             schema_msg("public-gadgets", {"id": {"type": ["integer"]}}),
             batch_msg("public-gadgets", [arrow_path]),

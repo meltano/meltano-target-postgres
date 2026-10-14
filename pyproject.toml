@@ -35,7 +35,7 @@ dev = [
     "pytest-cov~=7.1",
     "ruff~=0.16.10",
     "testcontainers[postgres]~=4.15",
-    "types-jsonschema>=4.26.0.20260518",
+    "types-jsonschema>=4.26.0.20261006",
 ]
 
 [tool.hatch.version]

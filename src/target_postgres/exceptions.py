@@ -29,3 +29,7 @@ class BatchFlatteningUnsupportedException(TargetPostgresException):
     """Raised when a stream's flattening/inflection config would rename columns away from
     the raw schema property names that a BATCH-sourced Arrow file uses (SPEC.md-style
     by-name column matching can't bridge that gap)."""
+
+
+class ArrowValueError(TargetPostgresException, ValueError):
+    """Raised when a value in an Arrow array is not supported."""

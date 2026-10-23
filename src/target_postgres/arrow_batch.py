@@ -11,7 +11,14 @@ broken/partial install of these packages never breaks RECORD-only syncs.
 
 from __future__ import annotations
 
+import json
+from typing import TYPE_CHECKING
 from urllib.parse import quote_plus
+
+from target_postgres.exceptions import ArrowValueError
+
+if TYPE_CHECKING:
+    from pyarrow import Table
 
 
 def strip_file_uri(manifest: list) -> list:
@@ -20,24 +27,35 @@ def strip_file_uri(manifest: list) -> list:
     return [path[len("file://") :] if path.startswith("file://") else path for path in manifest]
 
 
-def _stringify_decimal_columns(table):
-    """Cast any Arrow decimal-typed column to string.
-
-    adbc-driver-postgresql's `adbc_ingest(mode="create")` can raise (e.g. "Can't map
-    Arrow type 'decimal64' to Postgres type") on some Arrow decimal widths -- not every
-    decimal bit-width Arrow supports has a corresponding staging-table type it knows how
-    to create. Casting to string sidesteps that entirely (and, unlike a float64 cast,
-    loses no precision); DbSync._upsert already casts every staging-sourced column to
-    its real target type (from the SCHEMA message) on the INSERT ... SELECT that follows,
-    so a string-typed staging column is no different from any other Arrow-native type
-    mismatch it already handles.
-    """
+def _coerce_types(table: Table) -> Table:
     import pyarrow as pa
     import pyarrow.compute as pc
 
     for i, field in enumerate(table.schema):
         if pa.types.is_decimal(field.type):
+            # Not every decimal bit-width Arrow supports has a corresponding staging-table type it knows how
+            # to create. Casting to string sidesteps that entirely (and, unlike a float64 cast,
+            # loses no precision); DbSync._upsert already casts every staging-sourced column to
+            # its real target type (from the SCHEMA message) on the INSERT ... SELECT that follows,
+            # so a string-typed staging column is no different from any other Arrow-native type
+            # mismatch it already handles.
             table = table.set_column(i, field.name, pc.cast(table.column(i), pa.string()))
+        elif pa.types.is_struct(field.type) or pa.types.is_list(field.type) or pa.types.is_large_list(field.type):
+            # A struct or list column comes from an `object` or `array` property, which the SCHEMA message types as
+            # jsonb, and `DbSync._upsert` already casts every staging-sourced column to its real target type, so a
+            # JSON string is all the staging table needs to carry. ADBC can't create a staging column for a struct,
+            # and while it can for a list (e.g. `integer[]`), Postgres has no cast from an array to jsonb. A null
+            # struct or list stays a SQL NULL.
+            try:
+                values = [
+                    None if val is None else json.dumps(val, default=str, allow_nan=False)
+                    for val in table.column(i).to_pylist()
+                ]
+            except ValueError as err:
+                msg = f"Column '{field.name}' of type `{field.type!s}` has an unsupported value"
+                raise ArrowValueError(msg) from err
+            table = table.set_column(i, field.name, pa.array(values, type=pa.string()))
+
     return table
 
 
@@ -56,7 +74,7 @@ def read_manifest_tables(file_paths: list):
         with ipc.open_file(file_path) as reader:
             tables.append(reader.read_all())
 
-    return _stringify_decimal_columns(pa.concat_tables(tables, promote_options="default"))
+    return _coerce_types(pa.concat_tables(tables, promote_options="default"))
 
 
 def build_adbc_uri(config: dict) -> str:

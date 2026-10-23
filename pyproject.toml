@@ -34,7 +34,7 @@ build-backend = "hatchling.build"
 dev = [
     "pytest~=9.1",
     "pytest-cov~=7.1",
-    "ruff~=0.16.10",
+    "ruff~=0.17.1",
     "testcontainers[postgres]~=4.15",
     "types-jsonschema>=4.26.0.20261006",
 ]

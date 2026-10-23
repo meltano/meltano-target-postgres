@@ -1,7 +1,10 @@
+import math
+
 import pyarrow as pa
 import pyarrow.ipc as ipc
+import pytest
 
-from target_postgres.arrow_batch import build_adbc_uri, read_manifest_tables, strip_file_uri
+from target_postgres.arrow_batch import ArrowValueError, build_adbc_uri, read_manifest_tables, strip_file_uri
 
 
 class TestStripFileUri:
@@ -34,6 +37,50 @@ class TestReadManifestTables:
         table = read_manifest_tables([str(path1), str(path2)])
         assert table.num_rows == 2
         assert table.column("id").to_pylist() == [1, 2]
+
+    def test_list_column_is_json_encoded_as_string(self, tmp_path):
+        lists = pa.array([[1, 2], [3, 4]], type=pa.list_(pa.int32()))
+        path = self._write_arrow_file(tmp_path / "a.arrow", {"lists": lists})
+        table = read_manifest_tables([str(path)])
+        assert table.schema.field("lists").type == pa.string()
+        assert table.column("lists").to_pylist() == ["[1, 2]", "[3, 4]"]
+
+    def test_struct_column_is_json_encoded_as_string(self, tmp_path):
+        structs = pa.array(
+            [{"database": "db", "collection": "a"}, None],
+            type=pa.struct([("database", pa.string()), ("collection", pa.string())]),
+        )
+        path = self._write_arrow_file(tmp_path / "a.arrow", {"id": [1, 2], "namespace": structs})
+        table = read_manifest_tables([str(path)])
+        assert table.schema.field("namespace").type == pa.string()
+        assert table.column("namespace").to_pylist() == ['{"database": "db", "collection": "a"}', None]
+        assert table.column("id").to_pylist() == [1, 2]
+
+    def test_nested_struct_with_timestamp_is_json_encoded(self, tmp_path):
+        from datetime import datetime
+
+        structs = pa.array(
+            [{"inner": {"at": datetime(2020, 1, 2, 3, 4, 5)}}],
+            type=pa.struct([("inner", pa.struct([("at", pa.timestamp("us"))]))]),
+        )
+        path = self._write_arrow_file(tmp_path / "a.arrow", {"obj": structs})
+        table = read_manifest_tables([str(path)])
+        assert table.column("obj").to_pylist() == ['{"inner": {"at": "2020-01-02 03:04:05"}}']
+
+    def test_struct_with_nan_raises(self, tmp_path):
+        structs = pa.array(
+            [{"amount": math.pi}, {"amount": math.nan}, {"amount": math.inf}],
+            type=pa.struct([("amount", pa.float64())]),
+        )
+        path = self._write_arrow_file(tmp_path / "a.arrow", {"obj": structs})
+        with pytest.raises(
+            ArrowValueError,
+            match="Column 'obj' of type `struct<amount: double>` has an unsupported value",
+        ) as exc_info:
+            _ = read_manifest_tables([str(path)])
+
+        assert isinstance(exc_info.value.__cause__, ValueError)
+        assert str(exc_info.value.__cause__).startswith("Out of range float values are not JSON compliant")
 
     def test_does_not_delete_source_files(self, tmp_path):
         path = self._write_arrow_file(tmp_path / "a.arrow", {"id": [1]})

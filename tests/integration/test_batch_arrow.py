@@ -126,13 +126,38 @@ class TestBasicArrowLoad:
         balances = {float(row[balance_idx]) for row in rows}
         assert balances == {9.5, 3.25}
 
+    def test_arrow_list_is_ingestible(self, db_config, pg_connect, tmp_path):
+        arrow_path = write_arrow_file(
+            tmp_path,
+            "batch1.arrow",
+            {
+                "id": pa.array([1, 2], type=pa.int64()),
+                "values": pa.array([[1, 2], [3, 4]], type=pa.list_(pa.int32())),
+            },
+        )
+        lines = [
+            schema_msg(
+                "public-lists",
+                {
+                    "id": {"type": ["integer"]},
+                    "values": {"type": "array", "items": {"type": "integer"}},
+                },
+            ),
+            batch_msg("public-lists", [arrow_path]),
+        ]
+        persist_lines(db_config, lines)
+
+        columns, rows = fetch_rows(pg_connect, "public", "lists")
+        idx = columns.index("values")
+        assert [row[idx] for row in rows] == [[1, 2], [3, 4]]
+
     def test_arrow_decimal_column_is_ingestible(self, db_config, pg_connect, tmp_path):
         # Unlike tap-postgres (which serializes NUMERIC as an Arrow string, see the test
         # above), some taps encode a decimal source column as a native Arrow decimal type
         # (e.g. pipelinewise-tap-mysql for a MySQL DECIMAL column). adbc-driver-postgresql
         # can fail to even create the staging table for some decimal bit-widths
         # ("Can't map Arrow type 'decimal64' to Postgres type") before _upsert's cast ever
-        # gets a chance to run -- _stringify_decimal_columns needs to convert it first.
+        # gets a chance to run -- _coerce_types needs to convert it first.
         arrow_path = write_arrow_file(
             tmp_path,
             "batch1.arrow",
@@ -158,6 +183,38 @@ class TestBasicArrowLoad:
         balance_idx = columns.index("balance")
         balances = {float(row[balance_idx]) for row in rows}
         assert balances == {9.5, 3.25}
+
+    def test_arrow_struct_column_is_ingestible_as_jsonb(self, db_config, pg_connect, tmp_path):
+        # adbc-driver-postgresql can't create a staging column for an Arrow struct ("Can't map
+        # Arrow type 'struct' to Postgres type"), e.g. tap-mongodb's `namespace` --
+        # _coerce_types needs to JSON-encode it first.
+        arrow_path = write_arrow_file(
+            tmp_path,
+            "batch1.arrow",
+            {
+                "id": pa.array([1, 2], type=pa.int64()),
+                "namespace": pa.array(
+                    [{"database": "db", "collection": "a"}, None],
+                    type=pa.struct([("database", pa.string()), ("collection", pa.string())]),
+                ),
+            },
+        )
+        lines = [
+            schema_msg(
+                "public-struct_accounts",
+                {
+                    "id": {"type": ["integer"]},
+                    "namespace": {"type": ["object", "null"]},
+                },
+            ),
+            batch_msg("public-struct_accounts", [arrow_path]),
+        ]
+
+        persist_lines(db_config, lines)
+
+        columns, rows = fetch_rows(pg_connect, "public", "struct_accounts")
+        namespace_idx = columns.index("namespace")
+        assert [row[namespace_idx] for row in rows] == [{"database": "db", "collection": "a"}, None]
 
     def test_manifest_files_are_deleted_after_processing(self, db_config, tmp_path):
         arrow_path = write_arrow_file(tmp_path, "batch1.arrow", {"id": pa.array([1], type=pa.int64())})

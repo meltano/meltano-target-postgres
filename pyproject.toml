@@ -33,7 +33,7 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pyarrow-stubs>=20.0.0.20260819",
-    "pytest~=9.1",
+    "pytest~=9.2",
     "pytest-cov~=7.1",
     "ruff~=0.17.1",
     "testcontainers[postgres]~=4.15",
